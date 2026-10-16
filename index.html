@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoRedact</title>
+  <meta name="description" content="Redact names, emails and other sensitive text from .txt files and save them as PDFs. Runs entirely in your browser; files are never uploaded.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23111827'/%3E%3Crect x='6' y='9' width='20' height='4' rx='1' fill='%23fff'/%3E%3Crect x='6' y='16' width='12' height='4' rx='1' fill='%23facc15'/%3E%3Crect x='20' y='16' width='6' height='4' rx='1' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><rect x="6" y="9" width="20" height="4" rx="1" fill="var(--bg)"/><rect x="6" y="16" width="12" height="4" rx="1" fill="#facc15"/><rect x="20" y="16" width="6" height="4" rx="1" fill="var(--bg)"/></svg>
+      <div>
+        <h1>AutoRedact</h1>
+        <p class="tagline">Redact text files to PDF. Everything runs in your browser; files are never uploaded.</p>
+      </div>
+    </div>
+    <nav class="top-actions">
+      <label class="btn">Open rules…<input type="file" id="rulesFile" accept=".json,application/json" hidden></label>
+      <button class="btn" id="saveRules" type="button">Save rules</button>
+      <button class="btn ghost" id="themeToggle" type="button" aria-label="Toggle dark mode">◐</button>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <!-- Files -->
+    <section class="panel files-panel" aria-labelledby="filesHeading">
+      <h2 id="filesHeading">Files</h2>
+      <div class="dropzone" id="dropzone" tabindex="0">
+        <p><strong>Drop .txt files or folders here</strong></p>
+        <div class="row">
+          <label class="btn">Choose files<input type="file" id="fileInput" accept=".txt,text/plain" multiple hidden></label>
+          <label class="btn">Choose folder<input type="file" id="folderInput" webkitdirectory multiple hidden></label>
+        </div>
+        <button class="link" id="loadSample" type="button">or try a sample file</button>
+      </div>
+      <div class="list-header">
+        <span id="filesSummary" class="muted">No files yet.</span>
+        <span class="row tight">
+          <button class="btn small" id="checkAll" type="button">All</button>
+          <button class="btn small" id="checkNone" type="button">None</button>
+          <button class="btn small" id="clearFiles" type="button">Clear</button>
+        </span>
+      </div>
+      <ul class="file-list" id="fileList" aria-label="Loaded files"></ul>
+    </section>
+
+    <!-- Preview / output -->
+    <section class="panel centre-panel" aria-label="Preview">
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tabPreview" aria-selected="true" aria-controls="previewPane" type="button">Source preview</button>
+        <button role="tab" id="tabOutput" aria-selected="false" aria-controls="outputPane" type="button">Output PDF</button>
+      </div>
+
+      <div id="previewPane" role="tabpanel" aria-labelledby="tabPreview" class="pane">
+        <div class="pane-toolbar">
+          <span id="previewInfo" class="muted">Add a file to preview it.</span>
+          <span class="row tight">
+            <button class="btn small" id="addSelection" type="button" disabled title="Select text in the preview first">+ Add selection as word</button>
+            <button class="btn small" id="prevMatch" type="button" aria-label="Previous match">◀</button>
+            <button class="btn small" id="nextMatch" type="button" aria-label="Next match">▶</button>
+          </span>
+        </div>
+        <pre class="preview" id="preview" tabindex="0"></pre>
+      </div>
+
+      <div id="outputPane" role="tabpanel" aria-labelledby="tabOutput" class="pane" hidden>
+        <div class="pane-toolbar">
+          <span id="outputInfo" class="muted"></span>
+          <span class="row tight" id="outputActions" hidden>
+            <a class="btn small" id="openPdf" target="_blank" rel="noopener">Open PDF</a>
+            <a class="btn small" id="downloadPdf">Download PDF</a>
+            <a class="btn small" id="downloadImg">Download image PDF</a>
+          </span>
+        </div>
+        <div class="pages" id="pages">
+          <p id="outputEmpty" class="empty">Run the redaction to see the pages here.</p>
+        </div>
+      </div>
+
+      <details class="log-wrap" open>
+        <summary>Log</summary>
+        <pre class="log" id="log" aria-live="polite"></pre>
+      </details>
+    </section>
+
+    <!-- Rules and options -->
+    <section class="panel side-panel" aria-label="Rules and output">
+      <div class="group">
+        <h2>Words and phrases <span class="muted small-text">not case-sensitive</span></h2>
+        <ul class="rule-list" id="wordList"></ul>
+        <form class="add-row" id="addWordForm">
+          <input id="newWord" placeholder="Add a word or phrase" autocomplete="off">
+          <button class="btn" type="submit">Add</button>
+        </form>
+      </div>
+
+      <div class="group">
+        <h2>Regex patterns <span class="muted small-text">case-sensitive</span></h2>
+        <ul class="rule-list mono" id="patternList"></ul>
+        <form class="add-row" id="addPatternForm">
+          <input id="newPattern" class="mono" placeholder="e.g. \b\d{3}-\d{4}\b" autocomplete="off" spellcheck="false">
+          <button class="btn" type="submit">Add</button>
+        </form>
+        <select id="commonPatterns" aria-label="Add a common pattern">
+          <option value="">Add a common pattern…</option>
+        </select>
+      </div>
+
+      <label class="check"><input type="checkbox" id="partial"> Match inside longer words (partial match)</label>
+      <p class="hint">When on, the word “thi” also matches “this” and “within”.</p>
+
+      <div class="group">
+        <h2>Try the rules</h2>
+        <input id="tester" placeholder="Type some sample text…" autocomplete="off">
+        <p class="tester-result" id="testerResult"></p>
+      </div>
+
+      <div class="group">
+        <h2>Output</h2>
+        <div class="field">
+          <label for="mode">Mode</label>
+          <select id="mode">
+            <option value="highlight">Highlight (review only)</option>
+            <option value="blackout">Black box (removes text)</option>
+            <option value="replace">Replace with [REDACTED]</option>
+          </select>
+        </div>
+        <p id="modeWarning" class="notice"></p>
+        <div class="field">
+          <label for="color">Highlight colour</label>
+          <input type="color" id="color" value="#ffff00">
+        </div>
+        <div class="field">
+          <label for="pageSize">Page size</label>
+          <select id="pageSize"><option value="letter">Letter</option><option value="a4">A4</option></select>
+        </div>
+        <label class="check"><input type="checkbox" id="keepBreaks"> Keep line breaks (emails, lists)</label>
+        <label class="check"><input type="checkbox" id="imagePdf" checked> Also make image-only PDF (_IMG)</label>
+        <div class="field">
+          <label for="dpi">Image resolution</label>
+          <select id="dpi">
+            <option value="72">72 dpi</option>
+            <option value="108" selected>108 dpi</option>
+            <option value="150">150 dpi</option>
+            <option value="200">200 dpi</option>
+            <option value="300">300 dpi</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="run-box">
+        <div class="row">
+          <button class="btn primary" id="runBtn" type="button">Redact selected files</button>
+          <button class="btn" id="cancelBtn" type="button" disabled>Cancel</button>
+        </div>
+        <progress id="progress" value="0" max="1"></progress>
+        <div class="row">
+          <button class="btn" id="downloadZip" type="button" disabled>Download all (.zip)</button>
+          <button class="btn" id="downloadCsv" type="button" disabled>Match report (.csv)</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    AutoRedact web edition. Rules files are compatible with the desktop tool's <code>redactions.json</code>.
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="js/redact.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

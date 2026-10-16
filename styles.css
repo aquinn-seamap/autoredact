@@ -131,6 +131,9 @@ input[type="color"] { width: 64px; height: 30px; border: 1px solid var(--border)
 .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge { font-size: 11.5px; padding: 1px 7px; border-radius: 99px; background: var(--hover); color: var(--muted); font-variant-numeric: tabular-nums; }
 .badge.hit { background: #fef3c7; color: #92400e; }
+.kind { font-size: 9.5px; font-weight: 700; letter-spacing: .03em; padding: 1px 4px; border-radius: 4px; background: var(--hover); color: var(--muted); flex: none; }
+.kind-pdf { background: #fee2e2; color: #991b1b; }
+.kind-msg, .kind-eml { background: #dbeafe; color: #1e40af; }
 .status { width: 14px; text-align: center; font-size: 12px; }
 .status.ok { color: var(--ok); }
 .status.err { color: var(--error); }

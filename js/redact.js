@@ -371,8 +371,9 @@
     return text.replace(/\r\n?/g, '\n');
   }
 
-  function outputNames(relPath) {
-    const base = relPath.replace(/\.txt$/i, '');
+  /** keepExt turns "a.pdf" into "a_pdf.pdf", for when "a.txt" is also loaded. */
+  function outputNames(relPath, keepExt) {
+    const base = keepExt ? relPath.replace(/\.([a-z0-9]+)$/i, '_$1') : relPath.replace(/\.(txt|pdf|eml|msg)$/i, '');
     return { pdf: base + '.pdf', img: base + '_IMG.pdf' };
   }
 

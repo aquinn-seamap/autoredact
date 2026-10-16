@@ -3,6 +3,7 @@
   'use strict';
 
   const AR = window.AutoRedact;
+  const Sources = window.AutoRedactSources;
   const $ = (id) => document.getElementById(id);
 
   const STORAGE_KEY = 'autoredact.settings.v1';
@@ -121,31 +122,55 @@
   // ------------------------------------------------------------ files
 
   async function addFiles(entries) {
-    const txt = entries.filter((e) => /\.txt$/i.test(e.path));
-    const skipped = entries.length - txt.length;
-    if (!txt.length) {
-      log(skipped ? `No .txt files among the ${skipped} item(s) added.` : 'No files added.');
+    const supported = entries.filter((e) => Sources.SUPPORTED.test(e.path))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    const skipped = entries.length - supported.length;
+    if (!supported.length) {
+      log(skipped ? `None of the ${skipped} item(s) added are .txt, .pdf, .eml or .msg files.` : 'No files added.');
       return;
     }
     const r = buildRedactor();
-    for (const { file, path } of txt) {
-      const text = AR.decodeText(await file.arrayBuffer());
-      addText(path, text, r);
+    let added = 0;
+    let failed = 0;
+    for (let i = 0; i < supported.length; i++) {
+      const { file, path } = supported[i];
+      $('filesSummary').textContent = `Reading ${i + 1} of ${supported.length}: ${path}`;
+      try {
+        const sources = await Sources.extract(new Uint8Array(await file.arrayBuffer()), path);
+        for (const s of sources) {
+          if (s.error) {
+            failed++;
+            log(`  ✗ ${s.path}: ${s.error}`);
+            continue;
+          }
+          addText(s.path, s.text, r, s);
+          added++;
+          if (s.note) log(`  ${s.path}: ${s.note}`);
+        }
+      } catch (e) {
+        failed++;
+        log(`  ✗ ${path}: ${e.message || e}`);
+      }
     }
-    log(`Added ${txt.length} file(s)` + (skipped ? `, skipped ${skipped} non-.txt file(s).` : '.'));
+    log(`Added ${added} source(s)` + (failed ? `, ${failed} could not be read` : '') +
+      (skipped ? `, skipped ${skipped} unsupported file(s)` : '') + '.');
     renderFileList();
     renderPreview();
   }
 
-  function addText(path, text, redactor) {
+  function addText(path, text, redactor, meta) {
+    meta = meta || {};
     const existing = state.files.find((f) => f.path === path);
     const count = (redactor || buildRedactor()).findMatches(text).length;
+    const kind = meta.kind || 'txt';
     if (existing) {
-      Object.assign(existing, { text, count, result: null });
+      Object.assign(existing, { text, count, kind, note: meta.note || '', result: null });
     } else {
-      const f = { id: nextId++, path, text, count, checked: true, result: null };
-      state.files.push(f);
-      state.files.sort((a, b) => a.path.localeCompare(b.path));
+      // Keep "a.pdf" and "a.txt" from writing to the same output file.
+      const base = AR.outputNames(path).pdf;
+      const keepExt = state.files.some((o) => AR.outputNames(o.path, o.keepExt).pdf === base);
+      const f = { id: nextId++, path, text, count, kind, note: meta.note || '', keepExt, checked: true, result: null };
+      state.files.push(f); // insertion order keeps attachments under their email
       if (!state.currentId) state.currentId = f.id;
     }
   }
@@ -196,11 +221,14 @@
       const name = document.createElement('span');
       name.className = 'file-name';
       name.textContent = f.path;
+      const kind = document.createElement('span');
+      kind.className = 'kind kind-' + f.kind;
+      kind.textContent = f.kind.toUpperCase();
       const badge = document.createElement('span');
       badge.className = 'badge' + (f.count ? ' hit' : '');
       badge.textContent = f.count;
       badge.title = `${f.count} match(es)`;
-      li.append(cb, status, name, badge);
+      li.append(cb, status, kind, name, badge);
       li.addEventListener('click', () => {
         state.currentId = f.id;
         renderFileList();
@@ -243,6 +271,7 @@
     previewMarks = [...pre.querySelectorAll('mark')];
 
     let info = `${matches.length} match(es) in ${f.path}`;
+    if (f.note) info += ` — ${f.note}`;
     if (matches.length > PREVIEW_HIGHLIGHT_LIMIT) info += ` (first ${PREVIEW_HIGHLIGHT_LIMIT.toLocaleString()} highlighted)`;
     if (truncated) info += ` — showing the first ${PREVIEW_CHAR_LIMIT.toLocaleString()} of ${f.text.length.toLocaleString()} characters`;
     if (Object.keys(invalidPatterns()).length) info += ' — invalid patterns are being ignored';
@@ -397,7 +426,7 @@
     const pdf = doc.output('blob');
     let img = null;
     if (opts.imagePdf) img = await rasterise(model, opts.dpi, opts.onPage);
-    return { path: f.path, matches, pdf, img, model, pages: model.pages.length };
+    return { path: f.path, names: AR.outputNames(f.path, f.keepExt), matches, pdf, img, model, pages: model.pages.length };
   }
 
   async function run() {
@@ -470,9 +499,8 @@
     if (!window.JSZip) { alert('The ZIP library failed to load.'); return; }
     const zip = new window.JSZip();
     for (const r of ok) {
-      const names = AR.outputNames(r.path);
-      zip.file(names.pdf, r.pdf);
-      if (r.img) zip.file(names.img, r.img);
+      zip.file(r.names.pdf, r.pdf);
+      if (r.img) zip.file(r.names.img, r.img);
     }
     zip.file('redaction_report.csv', AR.csvReport(ok));
     download(await zip.generateAsync({ type: 'blob' }), 'redacted.zip');
@@ -513,7 +541,7 @@
       return;
     }
 
-    const names = AR.outputNames(f.path);
+    const names = r.names;
     const link = (id, blob, name) => {
       const a = $(id);
       a.hidden = !blob;
